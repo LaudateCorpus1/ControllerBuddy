@@ -30,7 +30,6 @@ import static java.util.logging.Level.INFO;
 import static java.util.logging.Level.SEVERE;
 import static java.util.logging.Level.WARNING;
 import static java.util.stream.Collectors.joining;
-import static java.util.stream.Collectors.toUnmodifiableList;
 import static javax.swing.JOptionPane.ERROR_MESSAGE;
 import static javax.swing.JOptionPane.WARNING_MESSAGE;
 import static javax.swing.JOptionPane.showMessageDialog;
@@ -40,8 +39,12 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 import javax.swing.SwingUtilities;
+
+import org.hid4java.HidDevice;
+import org.hid4java.HidManager;
 
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
@@ -60,11 +63,6 @@ import com.sun.jna.platform.win32.WinDef.UINTByReference;
 import com.sun.jna.platform.win32.WinNT.HRESULT;
 import com.sun.jna.ptr.FloatByReference;
 import com.sun.jna.ptr.PointerByReference;
-
-import purejavahidapi.HidDevice;
-import purejavahidapi.HidDeviceInfo;
-import purejavahidapi.InputReportListener;
-import purejavahidapi.PureJavaHidApi;
 
 public final class DualShock4Extension {
 
@@ -234,11 +232,9 @@ public final class DualShock4Extension {
 
 	private static final String FRIENDLY_NAME = "DUALSHOCK\u00AE4 USB Wireless Adaptor";
 
-	private static final byte[] DEFAULT_HID_REPORT = new byte[] { (byte) 0x05, (byte) 0xFF, 0x0, 0x0, 0x0, 0x0,
-			(byte) 0x0C, (byte) 0x18, (byte) 0x1C, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, (byte) 0x50,
-			(byte) 0x50, (byte) 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
-
-	private static final int hidReportOffset = isWindows ? 1 : 0;
+	private static final byte[] DEFAULT_HID_REPORT = new byte[] { (byte) 0xFF, 0x0, 0x0, 0x0, 0x0, (byte) 0x0C,
+			(byte) 0x18, (byte) 0x1C, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, (byte) 0x50, (byte) 0x50,
+			(byte) 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
 	private static IMMDevice getFirstMatchingIMMDevice(final IMMDeviceEnumerator deviceEnumerator, final int dataFlow)
 			throws Exception {
@@ -367,31 +363,37 @@ public final class DualShock4Extension {
 		} else
 			return null;
 
-		final var dualShock4Devices = PureJavaHidApi.enumerateDevices().stream()
-				.filter(hidDeviceInfo -> hidDeviceInfo.getVendorId() == (short) 0x54C
-						&& hidDeviceInfo.getProductId() == productId)
-				.collect(toUnmodifiableList());
+		final var hidServices = HidManager.getHidServices();
+
+		final var dualShock4Devices = hidServices.getAttachedHidDevices().stream()
+				.filter(hidDevice -> hidDevice.getVendorId() == (short) 0x54C && hidDevice.getProductId() == productId)
+				.collect(Collectors.toUnmodifiableList());
 		final var count = dualShock4Devices.size();
 
-		if (count < 1)
-			return null;
+		if (count > 0) {
+			log.log(INFO, "Found " + count + " DualShock 4 controller(s): "
+					+ dualShock4Devices.stream().map(HidDevice::getId).collect(joining(", ")));
 
-		log.log(INFO, "Found " + count + " DualShock 4 controller(s): "
-				+ dualShock4Devices.stream().map(HidDeviceInfo::getDeviceId).collect(joining(", ")));
+			if (count > 1)
+				showMessageDialog(input.getMain().getFrame(),
+						strings.getString("MULTIPLE_DUAL_SHOCK_4_CONTROLLERS_CONNECTED_DIALOG_TEXT"),
+						strings.getString("WARNING_DIALOG_TITLE"), WARNING_MESSAGE);
 
-		if (count > 1)
-			showMessageDialog(input.getMain().getFrame(),
-					strings.getString("MULTIPLE_DUAL_SHOCK_4_CONTROLLERS_CONNECTED_DIALOG_TEXT"),
-					strings.getString("WARNING_DIALOG_TITLE"), WARNING_MESSAGE);
+			final var hidDevice = dualShock4Devices.get(0);
 
-		final var hidDeviceInfo = dualShock4Devices.get(0);
-		log.log(INFO, "Using DualShock 4 controller " + hidDeviceInfo.getDeviceId());
+			if (hidDevice.open()) {
+				log.log(INFO, "Using DualShock 4 controller " + hidDevice.getId());
 
-		try {
-			return new DualShock4Extension(input, hidDeviceInfo, isDongle);
-		} catch (final IOException e) {
-			log.log(SEVERE, e.getMessage(), e);
+				try {
+					return new DualShock4Extension(input, hidDevice, isDongle);
+				} catch (final IOException e) {
+					log.log(SEVERE, e.getMessage(), e);
+				}
+			} else
+				log.log(WARNING, "Error while opening HID device: " + hidDevice.getLastErrorMessage());
 		}
+
+		hidServices.shutdown();
 
 		return null;
 	}
@@ -405,9 +407,10 @@ public final class DualShock4Extension {
 	private IMMDevice microphoneDevice;
 	private boolean comLibraryInitialized;
 
-	private DualShock4Extension(final Input input, final HidDeviceInfo hidDeviceInfo, final boolean isDongle)
+	private DualShock4Extension(final Input input, final HidDevice hidDevice, final boolean isDongle)
 			throws IOException {
 		this.input = input;
+		this.hidDevice = hidDevice;
 
 		try {
 			if (isWindows && isDongle) {
@@ -468,10 +471,9 @@ public final class DualShock4Extension {
 							strings.getString("WARNING_DIALOG_TITLE"), ERROR_MESSAGE);
 			}
 
-			hidDevice = PureJavaHidApi.openDevice(hidDeviceInfo);
 			reset();
 
-			hidDevice.setInputReportListener(new InputReportListener() {
+			new Thread() {
 
 				private static final int TOUCHPAD_MAX_DELTA = 150;
 				private static final float TOUCHPAD_CURSOR_SENSITIVITY = 1.25f;
@@ -484,68 +486,81 @@ public final class DualShock4Extension {
 				private int prevY1;
 
 				@Override
-				public void onInputReport(final HidDevice source, final byte reportID, final byte[] reportData,
-						final int reportLength) {
-					if (reportID != 0x01 || reportData.length != 64) {
-						log.log(WARNING, "Received unknown HID input report with ID " + reportID + " and length "
-								+ reportLength);
-						return;
-					}
+				public void run() {
 
-					final var cableConnected = (reportData[30] >> 4 & 0x01) != 0;
-					var battery = reportData[30] & 0x0F;
+					final var data = new byte[40];
+					for (;;) {
+						int bytesRead;
+						synchronized (hidDevice) {
+							if (!hidDevice.isOpen())
+								return;
 
-					setCharging(cableConnected);
-
-					if (!cableConnected)
-						battery++;
-
-					battery = min(battery, 10);
-					battery *= 10;
-
-					setBatteryState(battery);
-
-					final var main = input.getMain();
-					if (!main.isLocalThreadActive() && !main.isServerThreadActive())
-						return;
-
-					final var touchpadButtonDown = (reportData[7] & 1 << 2 - 1) != 0;
-					final var down1 = reportData[35] >> 7 != 0 ? false : true;
-					final var down2 = reportData[39] >> 7 != 0 ? false : true;
-					final var x1 = reportData[36] + (reportData[37] & 0xF) * 255;
-					final var y1 = ((reportData[37] & 0xF0) >> 4) + reportData[38] * 16;
-
-					final var downMouseButtons = input.getDownMouseButtons();
-					if (touchpadButtonDown)
-						synchronized (downMouseButtons) {
-							downMouseButtons.add(down2 ? 2 : 1);
-						}
-					else if (prevTouchpadButtonDown)
-						synchronized (downMouseButtons) {
-							downMouseButtons.clear();
+							bytesRead = hidDevice.read(data);
 						}
 
-					if (down1 && prevDown1) {
-						final var dX1 = x1 - prevX1;
-						final var dY1 = y1 - prevY1;
+						if (bytesRead < 0) {
+							log.log(WARNING, "Could not read HID report");
+							return;
+						} else if (bytesRead != data.length) {
+							log.log(WARNING, "Received invalid HID input report with length " + bytesRead);
+							continue;
+						}
 
-						if (!prevDown2 || touchpadButtonDown) {
-							if (prevX1 > 0 && abs(dX1) < TOUCHPAD_MAX_DELTA)
-								input.setCursorDeltaX((int) (dX1 * TOUCHPAD_CURSOR_SENSITIVITY));
+						final var cableConnected = (data[30] >> 4 & 0x01) != 0;
+						var battery = data[30] & 0x0F;
 
-							if (prevY1 > 0 && abs(dY1) < TOUCHPAD_MAX_DELTA)
-								input.setCursorDeltaY((int) (dY1 * TOUCHPAD_CURSOR_SENSITIVITY));
-						} else if (prevY1 > 0 && abs(dY1) < TOUCHPAD_MAX_DELTA)
-							input.setScrollClicks((int) (-dY1 * TOUCHPAD_SCROLL_SENSITIVITY));
+						setCharging(cableConnected);
+
+						if (!cableConnected)
+							battery++;
+
+						battery = min(battery, 10);
+						battery *= 10;
+
+						setBatteryState(battery);
+
+						final var main = input.getMain();
+						if (!main.isLocalThreadActive() && !main.isServerThreadActive())
+							continue;
+
+						final var touchpadButtonDown = (data[7] & 1 << 2 - 1) != 0;
+						final var down1 = data[35] >> 7 != 0 ? false : true;
+						final var down2 = data[39] >> 7 != 0 ? false : true;
+						final var x1 = data[36] + (data[37] & 0xF) * 255;
+						final var y1 = ((data[37] & 0xF0) >> 4) + data[38] * 16;
+
+						final var downMouseButtons = input.getDownMouseButtons();
+						if (touchpadButtonDown)
+							synchronized (downMouseButtons) {
+								downMouseButtons.add(down2 ? 2 : 1);
+							}
+						else if (prevTouchpadButtonDown)
+							synchronized (downMouseButtons) {
+								downMouseButtons.clear();
+							}
+
+						if (down1 && prevDown1) {
+							final var dX1 = x1 - prevX1;
+							final var dY1 = y1 - prevY1;
+
+							if (!prevDown2 || touchpadButtonDown) {
+								if (prevX1 > 0 && abs(dX1) < TOUCHPAD_MAX_DELTA)
+									input.setCursorDeltaX((int) (dX1 * TOUCHPAD_CURSOR_SENSITIVITY));
+
+								if (prevY1 > 0 && abs(dY1) < TOUCHPAD_MAX_DELTA)
+									input.setCursorDeltaY((int) (dY1 * TOUCHPAD_CURSOR_SENSITIVITY));
+							} else if (prevY1 > 0 && abs(dY1) < TOUCHPAD_MAX_DELTA)
+								input.setScrollClicks((int) (-dY1 * TOUCHPAD_SCROLL_SENSITIVITY));
+						}
+
+						prevTouchpadButtonDown = touchpadButtonDown;
+						prevDown1 = down1;
+						prevDown2 = down2;
+						prevX1 = x1;
+						prevY1 = y1;
 					}
-
-					prevTouchpadButtonDown = touchpadButtonDown;
-					prevDown1 = down1;
-					prevDown2 = down2;
-					prevX1 = x1;
-					prevY1 = y1;
 				}
-			});
+			}.start();
 		} catch (final Throwable t) {
 			deInit();
 			throw t;
@@ -554,29 +569,27 @@ public final class DualShock4Extension {
 
 	void deInit() {
 		try {
-			if (hidDevice != null) {
-				reset();
-				try {
-					hidDevice.close();
-				} catch (final IllegalStateException e) {
-				}
-				hidDevice = null;
-			}
+			reset();
+			hidDevice.close();
 		} finally {
 			try {
-				if (earphoneDevice != null) {
-					earphoneDevice.Release();
-					earphoneDevice = null;
-				}
+				HidManager.getHidServices().shutdown();
 			} finally {
 				try {
-					if (microphoneDevice != null) {
-						microphoneDevice.Release();
-						microphoneDevice = null;
+					if (earphoneDevice != null) {
+						earphoneDevice.Release();
+						earphoneDevice = null;
 					}
 				} finally {
-					if (comLibraryInitialized)
-						Ole32.INSTANCE.CoUninitialize();
+					try {
+						if (microphoneDevice != null) {
+							microphoneDevice.Release();
+							microphoneDevice = null;
+						}
+					} finally {
+						if (comLibraryInitialized)
+							Ole32.INSTANCE.CoUninitialize();
+					}
 				}
 			}
 		}
@@ -598,14 +611,14 @@ public final class DualShock4Extension {
 	void rumble(final long duration, final byte strength) {
 		new Thread(() -> {
 			synchronized (hidReport) {
-				hidReport[5] = strength;
+				hidReport[4] = strength;
 				if (sendHidReport()) {
 					try {
 						Thread.sleep(duration);
 					} catch (final InterruptedException e) {
 						Thread.currentThread().interrupt();
 					}
-					hidReport[5] = 0;
+					hidReport[4] = 0;
 					sendHidReport();
 				}
 			}
@@ -613,36 +626,26 @@ public final class DualShock4Extension {
 	}
 
 	private boolean sendHidReport() {
-		if (hidDevice == null)
+		if (!hidDevice.isOpen())
 			return false;
 
 		if (earphoneDevice != null)
 			try {
-				hidReport[19] = hidReport[20] = getNormalizedVolumeValue(earphoneDevice, 19);
+				hidReport[18] = hidReport[19] = getNormalizedVolumeValue(earphoneDevice, 18);
 			} catch (final Exception e) {
 				log.log(SEVERE, e.getMessage(), e);
 			}
 
 		if (microphoneDevice != null)
 			try {
-				hidReport[21] = getNormalizedVolumeValue(microphoneDevice, 21);
+				hidReport[20] = getNormalizedVolumeValue(microphoneDevice, 20);
 			} catch (final Exception e) {
 				log.log(SEVERE, e.getMessage(), e);
 			}
 
-		final var dataLength = hidReport.length - hidReportOffset;
+		final var bytesSent = hidDevice.write(hidReport, hidReport.length, (byte) 0x05);
 
-		try {
-			for (var i = 0; i < 5; i++) {
-				final var dataSent = hidDevice.setOutputReport(hidReport[0],
-						Arrays.copyOfRange(hidReport, 0 + hidReportOffset, hidReport.length), dataLength);
-				if (dataSent == dataLength)
-					return true;
-			}
-		} catch (final IllegalStateException e) {
-		}
-
-		return false;
+		return bytesSent == hidReport.length + 1;
 	}
 
 	private void setBatteryState(final int batteryState) {
@@ -679,13 +682,13 @@ public final class DualShock4Extension {
 	private void updateLightbarColor() {
 		synchronized (hidReport) {
 			if (charging) {
-				hidReport[6] = (byte) (batteryState >= 100 ? 0x0 : 0x1C);
-				hidReport[7] = (byte) 0x1C;
-				hidReport[8] = 0x0;
+				hidReport[5] = (byte) (batteryState >= 100 ? 0x0 : 0x1C);
+				hidReport[6] = (byte) 0x1C;
+				hidReport[7] = 0x0;
 			} else {
-				hidReport[6] = (byte) (batteryState <= LOW_BATTERY_WARNING ? 0x1C : 0x0);
-				hidReport[7] = 0;
-				hidReport[8] = (byte) (batteryState <= LOW_BATTERY_WARNING ? 0x0 : 0x1C);
+				hidReport[5] = (byte) (batteryState <= LOW_BATTERY_WARNING ? 0x1C : 0x0);
+				hidReport[6] = 0;
+				hidReport[7] = (byte) (batteryState <= LOW_BATTERY_WARNING ? 0x0 : 0x1C);
 			}
 
 			sendHidReport();

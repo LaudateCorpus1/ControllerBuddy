@@ -33,11 +33,11 @@ repositories {
 dependencies {
 	implementation 'commons-cli:commons-cli:1.4',
 			'com.formdev:flatlaf:0.40',
-			'com.github.nyholku:purejavahidapi:ef5679619d',
 			'com.google.code.gson:gson:2.8.6',
 			'io.github.classgraph:classgraph:4.8.87',
 			"net.java.dev.jna:jna:$jnaVersion",
 			"net.java.dev.jna:jna-platform:$jnaVersion",
+			'org.hid4java:hid4java:0.6.0',
 			"org.lwjgl:lwjgl:$lwjglVersion",
 			"org.lwjgl:lwjgl-glfw:$lwjglVersion",
 			"org.lwjgl:lwjgl-opengl:$lwjglVersion",

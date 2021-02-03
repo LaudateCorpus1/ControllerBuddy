@@ -1,19 +1,18 @@
 plugins {
-	id 'application'
+	id 'org.beryx.jlink' version '2.23.3'
 	id 'com.github.spotbugs' version '4.6.0'
 	id 'com.diffplug.gradle.spotless' version '3.27.2'
 	id 'eclipse'
 	id 'org.ajoberstar.grgit' version '4.1.0'
 }
 
-mainClassName = 'de.bwravencl.controllerbuddy.gui.Main'
 version = "${org.ajoberstar.grgit.Grgit.open(dir: projectDir).describe(longDescr: true).replaceFirst(java.util.regex.Pattern.quote('-'), '.').replaceFirst(java.util.regex.Pattern.quote('-g'), '-')}"
 
 sourceCompatibility = 15
 targetCompatibility = 15
 
 ext {
-	versionWithoutHash = version.substring(0, version.indexOf('-'))
+	namespace = 'de.bwravencl.controllerbuddy'
 
 	jnaVersion = '5.5.0'
 	lwjglVersion = '3.2.3'
@@ -21,9 +20,7 @@ ext {
 	resourcesDir = 'src/main/resources'
 	genDir = 'gen'
 	versionDir = "$genDir/main/java"
-	libsDir = "$buildDir/$libsDirName"
 	tmpDir = "$buildDir/tmp"
-	appImageDir = "$tmpDir/$project.name"
 	runtimeDir = "$tmpDir/runtime"
 
 	gamecontrollerdbFile = "$resourcesDir/gamecontrollerdb.txt"
@@ -38,6 +35,8 @@ ext {
 	spotlessFormatFile = 'spotless.eclipseformat.xml'
 	spotlessImportOrderFile = 'spotless.importorder'
 }
+
+mainClassName = "${namespace}.gui.Main"
 
 repositories {
 	mavenCentral()
@@ -59,11 +58,15 @@ dependencies {
 	implementation	('org.apache.xmlgraphics:batik-swing:1.13') {
 		exclude group: 'xml-apis', module: 'xml-apis'
 	}
-	runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:natives-linux",
-			"org.lwjgl:lwjgl:$lwjglVersion:natives-macos",
-			"org.lwjgl:lwjgl:$lwjglVersion:natives-windows",
-			"org.lwjgl:lwjgl-glfw:$lwjglVersion:natives-linux",
-			"org.lwjgl:lwjgl-glfw:$lwjglVersion:natives-macos",
+	// runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:natives-linux",
+	// 		"org.lwjgl:lwjgl:$lwjglVersion:natives-macos",
+	// 		"org.lwjgl:lwjgl:$lwjglVersion:natives-windows",
+	// 		"org.lwjgl:lwjgl-glfw:$lwjglVersion:natives-linux",
+	// 		"org.lwjgl:lwjgl-glfw:$lwjglVersion:natives-macos",
+	// 		"org.lwjgl:lwjgl-glfw:$lwjglVersion:natives-windows",
+	// 		"org.lwjgl:lwjgl-opengl:$lwjglVersion:natives-windows",
+	// 		"org.lwjgl:lwjgl-openvr:$lwjglVersion:natives-windows"
+	runtimeOnly	"org.lwjgl:lwjgl:$lwjglVersion:natives-windows",
 			"org.lwjgl:lwjgl-glfw:$lwjglVersion:natives-windows",
 			"org.lwjgl:lwjgl-opengl:$lwjglVersion:natives-windows",
 			"org.lwjgl:lwjgl-openvr:$lwjglVersion:natives-windows"
@@ -388,18 +391,35 @@ compileJava {
 	options.compilerArgs += ["-Xlint:deprecation"]
 }
 
-task jlink(type: Exec) {
-	description = 'Executes the jlink command to create a customized minimal Java runtime inside the build directory. Also removes any preexisting runtime in the same directory.'
-	group
-	doFirst { delete runtimeDir }
-	commandLine 'jlink', '--output', runtimeDir, '--strip-debug', '--no-header-files', '--no-man-pages', '--strip-native-commands', '--add-modules', 'java.desktop,java.sql,jdk.unsupported,jdk.xml.dom'
-}
-
-task copyLibs(type: Copy) {
-	description = 'Copies all jar files into a directory called \'libs\' inside the build directory.'
-	dependsOn jar
-	from configurations.runtimeClasspath
-	into libsDir
+jlink {
+	imageDir = file(runtimeDir)
+	moduleName = namespace
+	options = [
+		'--strip-debug',
+		'--no-header-files',
+		'--no-man-pages',
+		'--strip-native-commands',
+		'--add-modules',
+		'java.desktop,java.sql,jdk.unsupported,jdk.xml.dom'
+	]
+	mergedModule {
+		additive = true
+		requires 'jdk.unsupported'
+		excludeProvides servicePattern: 'org.apache.*'
+	}
+	jpackage {
+		appVersion = version.substring(0, version.indexOf('-'))
+		icon = "$projectDir/icon.ico"
+		outputDir = tmpDir
+		imageOptions = [
+			'--copyright',
+			"Copyright ${new Date().format('yyyy')} Matteo Hausner",
+			'--vendor',
+			'Matteo Hausner',
+			'--verbose'
+		]
+		skipInstaller = true
+	}
 }
 
 task customizeLoggingProperties {
@@ -413,13 +433,6 @@ task customizeLoggingProperties {
 			entry(key: 'java.util.logging.SimpleFormatter.format', value: '[%1$tY-%1$tm-%1$td %1$tk:%1$tM:%1$tS:%1$tL] %3$s: %5$s%6$s%n')
 		}
 	}
-}
-
-task jpackage(type: Exec) {
-	description = 'Executes the jpackage command to create a standalone application image packaged with a custom minimal Java runtime.'
-	dependsOn copyLibs, customizeLoggingProperties
-	doFirst { delete appImageDir }
-	commandLine 'jpackage', '--input', libsDir, '--dest', tmpDir, '--type', 'app-image', '--name', project.name, '--runtime-image', runtimeDir, '--main-class', mainClassName, '--main-jar', "${project.name}-${version}.jar", '--app-version', versionWithoutHash, '--icon', "$projectDir/icon.ico", '--copyright', "Copyright ${new Date().format('yyyy')} Matteo Hausner", '--vendor', 'Matteo Hausner', '--verbose'
 }
 
 startScripts.enabled = false

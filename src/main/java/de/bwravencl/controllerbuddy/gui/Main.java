@@ -2666,7 +2666,7 @@ public final class Main implements SingletonApp {
 	}
 
 	public void setSelectedControllerAndUpdateInput(final ControllerInfo controller,
-			final EnumMap<VirtualAxis, Integer> axes) {
+			@SuppressWarnings("exports") final EnumMap<VirtualAxis, Integer> axes) {
 		stopAll(true);
 
 		setSelectedController(controller);

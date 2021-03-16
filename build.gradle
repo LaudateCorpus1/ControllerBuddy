@@ -5,6 +5,7 @@ plugins {
 	id 'application'
 	id 'com.github.spotbugs' version '4.7.0'
 	id 'com.diffplug.gradle.spotless' version '3.27.2'
+	id 'de.jjohannes.extra-java-module-info' version '0.6'
 	id 'eclipse'
 	id 'org.ajoberstar.grgit' version '4.1.0'
 }
@@ -15,14 +16,14 @@ sourceCompatibility = 16
 targetCompatibility = 16
 
 application {
+	mainModule ="de.bwravencl.controllerbuddy"
 	mainClass = "de.bwravencl.controllerbuddy.gui.Main"
 }
 
-java {
-	modularity.inferModulePath = false
-}
-
 ext {
+	batikVersion = '1.14'
+	commonsCliVersion = '1.4'
+	flatlafVersion = '1.0'
 	jnaVersion = '5.7.0'
 	lwjglVersion = '3.2.3'
 
@@ -68,8 +69,8 @@ dependencies {
 	else
 		throw new GradleException("Unsupported operating system $os.displayName")
 
-	implementation 'commons-cli:commons-cli:1.4',
-			'com.formdev:flatlaf:1.0',
+	implementation "commons-cli:commons-cli:$commonsCliVersion",
+			"com.formdev:flatlaf:$flatlafVersion",
 			'com.github.nyholku:purejavahidapi:ef5679619d',
 			'com.google.code.gson:gson:2.8.6',
 			'io.github.classgraph:classgraph:4.8.102',
@@ -83,11 +84,74 @@ dependencies {
 
 	runtimeOnly "org.lwjgl:lwjgl-glfw:$lwjglVersion:natives-$lwjglPlatform"
 
-	implementation	('org.apache.xmlgraphics:batik-swing:1.14') {
+	implementation	("org.apache.xmlgraphics:batik-swing:$batikVersion") {
 		exclude group: 'xml-apis', module: 'xml-apis'
 	}
 
 	spotbugs 'com.github.spotbugs:spotbugs:4.2.0'
+}
+
+extraJavaModuleInfo {
+	failOnMissingModuleInfo = false
+
+	automaticModule("batik-anim-${batikVersion}.jar", 'batik.anim')
+	automaticModule("batik-awt-util-${batikVersion}.jar", 'batik.awt.util')
+	automaticModule("batik-bridge-${batikVersion}.jar", 'batik.bridge')
+	automaticModule("batik-constants-${batikVersion}.jar", 'batik.constants')
+	automaticModule("batik-css-${batikVersion}.jar", 'batik.css')
+	automaticModule("batik-dom-${batikVersion}.jar", 'batik.dom')
+	automaticModule("batik-ext-${batikVersion}.jar", 'batik.ext')
+	automaticModule("batik-gui-util-${batikVersion}.jar", 'batik.gui.util')
+	automaticModule("batik-gvt-${batikVersion}.jar", 'batik.gvt')
+	automaticModule("batik-i18n-${batikVersion}.jar", 'batik.i18n')
+	automaticModule("batik-shared-resources-${batikVersion}.jar", 'batik.shared.resources')
+	automaticModule("batik-svg-dom-${batikVersion}.jar", 'batik.svg.dom')
+	automaticModule("batik-util-${batikVersion}.jar", 'batik.util')
+	automaticModule("batik-parser-${batikVersion}.jar", 'batik.parser')
+	automaticModule("batik-xml-${batikVersion}.jar", 'batik.xml')
+	automaticModule('commons-io-1.3.1.jar', 'commons.io')
+	automaticModule('commons-logging-1.0.4.jar', 'commons.logging')
+	automaticModule('purejavahidapi-ef5679619d.jar', 'purejavahidapi')
+	automaticModule('serializer-2.7.2.jar', 'serializer')
+	automaticModule('xml-apis-ext-1.3.04.jar', 'xml.apis.ext')
+	automaticModule('xmlgraphics-commons-2.6.jar', 'xmlgraphics.commons')
+
+	module("batik-swing-${batikVersion}.jar", 'batik.swing', batikVersion) {
+		exports('org.apache.batik.swing')
+		requires('java.desktop')
+		requires('commons.io')
+		requires('commons.logging')
+		requires('batik.anim')
+		requires('batik.bridge')
+		requires('batik.constants')
+		requires('batik.css')
+		requires('batik.dom')
+		requires('batik.ext')
+		requires('batik.gvt')
+		requires('batik.svg.dom')
+		requires('batik.util')
+		requires('batik.xml')
+		requires('batik.parser')
+		requires('batik.awt.util')
+		requires('batik.gui.util')
+		requires('batik.i18n')
+		requires('batik.shared.resources')
+		requires('serializer')
+		requires('xml.apis.ext')
+		requires('xmlgraphics.commons')
+	}
+
+	module("commons-cli-${commonsCliVersion}.jar", 'commons.cli', commonsCliVersion) {
+		exports('org.apache.commons.cli')
+	}
+
+	module("flatlaf-${flatlafVersion}.jar", 'com.formdev.flatlaf', flatlafVersion) {
+		exports('com.formdev.flatlaf')
+		exports('com.formdev.flatlaf.icons')
+		exports('com.formdev.flatlaf.ui')
+		exports('com.formdev.flatlaf.util')
+		requires('java.desktop')
+	}
 }
 
 spotbugs {

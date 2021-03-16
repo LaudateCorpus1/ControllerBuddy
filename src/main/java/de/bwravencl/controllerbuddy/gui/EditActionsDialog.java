@@ -301,7 +301,8 @@ public final class EditActionsDialog extends JDialog {
 	private final JList<AssignedAction> assignedActionsList = new JList<>();
 
 	@SuppressWarnings("unchecked")
-	public EditActionsDialog(final java.awt.Component parentComponent, final ButtonToCycleAction cycleAction) {
+	public EditActionsDialog(final java.awt.Component parentComponent,
+			@SuppressWarnings("exports") final ButtonToCycleAction cycleAction) {
 		this.cycleAction = cycleAction;
 
 		try {
@@ -394,6 +395,7 @@ public final class EditActionsDialog extends JDialog {
 		return assignedActions.toArray(new AssignedAction[assignedActions.size()]);
 	}
 
+	@SuppressWarnings("exports")
 	public Input getInput() {
 		return input;
 	}
